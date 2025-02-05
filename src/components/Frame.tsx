@@ -13,6 +13,11 @@ import {
   CardDescription,
   CardContent,
 } from "~/components/ui/card";
+import { Input } from "~/components/ui/input";
+import { Button } from "~/components/ui/button";
+import { useReadContract } from "wagmi";
+import { erc20Abi } from "viem";
+import { Loader2 } from "lucide-react";
 
 import { config } from "~/components/providers/WagmiProvider";
 import { truncateAddress } from "~/lib/truncateAddress";
@@ -22,17 +27,66 @@ import { createStore } from "mipd";
 import { Label } from "~/components/ui/label";
 import { PROJECT_TITLE } from "~/lib/constants";
 
-function ExampleCard() {
+function TokenInfoCard({ contractAddress }: { contractAddress: string }) {
+  const { data: name, isLoading: nameLoading } = useReadContract({
+    abi: erc20Abi,
+    address: contractAddress as `0x${string}`,
+    functionName: "name",
+  });
+
+  const { data: symbol, isLoading: symbolLoading } = useReadContract({
+    abi: erc20Abi,
+    address: contractAddress as `0x${string}`,
+    functionName: "symbol",
+  });
+
+  const { data: decimals, isLoading: decimalsLoading } = useReadContract({
+    abi: erc20Abi,
+    address: contractAddress as `0x${string}`,
+    functionName: "decimals",
+  });
+
+  const { data: totalSupply, isLoading: supplyLoading } = useReadContract({
+    abi: erc20Abi,
+    address: contractAddress as `0x${string}`,
+    functionName: "totalSupply",
+  });
+
+  const isLoading = nameLoading || symbolLoading || decimalsLoading || supplyLoading;
+
   return (
-    <Card>
+    <Card className="mt-4">
       <CardHeader>
-        <CardTitle>Welcome to the Frame Template</CardTitle>
-        <CardDescription>
-          This is an example card that you can customize or remove
-        </CardDescription>
+        <CardTitle>Token Information</CardTitle>
+        <CardDescription>{truncateAddress(contractAddress)}</CardDescription>
       </CardHeader>
-      <CardContent>
-        <Label>Place content in a Card here.</Label>
+      <CardContent className="space-y-2">
+        {isLoading ? (
+          <div className="flex justify-center">
+            <Loader2 className="h-6 w-6 animate-spin" />
+          </div>
+        ) : (
+          <>
+            <div>
+              <Label>Name:</Label>
+              <p className="font-medium">{name || "N/A"}</p>
+            </div>
+            <div>
+              <Label>Symbol:</Label>
+              <p className="font-medium">{symbol || "N/A"}</p>
+            </div>
+            <div>
+              <Label>Decimals:</Label>
+              <p className="font-medium">{decimals?.toString() || "N/A"}</p>
+            </div>
+            <div>
+              <Label>Total Supply:</Label>
+              <p className="font-medium">
+                {totalSupply?.toString() || "N/A"}
+              </p>
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );
@@ -41,106 +95,95 @@ function ExampleCard() {
 export default function Frame() {
   const [isSDKLoaded, setIsSDKLoaded] = useState(false);
   const [context, setContext] = useState<Context.FrameContext>();
+  const [contractAddress, setContractAddress] = useState("");
+  const [submittedAddress, setSubmittedAddress] = useState("");
+  const [inputError, setInputError] = useState("");
 
-  const [added, setAdded] = useState(false);
-
-  const [addFrameResult, setAddFrameResult] = useState("");
-
-  const addFrame = useCallback(async () => {
-    try {
-      await sdk.actions.addFrame();
-    } catch (error) {
-      if (error instanceof AddFrame.RejectedByUser) {
-        setAddFrameResult(`Not added: ${error.message}`);
-      }
-
-      if (error instanceof AddFrame.InvalidDomainManifest) {
-        setAddFrameResult(`Not added: ${error.message}`);
-      }
-
-      setAddFrameResult(`Error: ${error}`);
+  const handleSubmit = () => {
+    if (!contractAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+      setInputError("Invalid Ethereum address");
+      return;
     }
-  }, []);
+    setInputError("");
+    setSubmittedAddress(contractAddress);
+  };
 
   useEffect(() => {
     const load = async () => {
       const context = await sdk.context;
-      if (!context) {
-        return;
-      }
+      if (!context) return;
 
       setContext(context);
-      setAdded(context.client.added);
-
-      // If frame isn't already added, prompt user to add it
-      if (!context.client.added) {
-        addFrame();
-      }
-
-      sdk.on("frameAdded", ({ notificationDetails }) => {
-        setAdded(true);
-      });
-
-      sdk.on("frameAddRejected", ({ reason }) => {
-        console.log("frameAddRejected", reason);
-      });
-
-      sdk.on("frameRemoved", () => {
-        console.log("frameRemoved");
-        setAdded(false);
-      });
-
-      sdk.on("notificationsEnabled", ({ notificationDetails }) => {
-        console.log("notificationsEnabled", notificationDetails);
-      });
-      sdk.on("notificationsDisabled", () => {
-        console.log("notificationsDisabled");
-      });
-
-      sdk.on("primaryButtonClicked", () => {
-        console.log("primaryButtonClicked");
-      });
-
-      console.log("Calling ready");
       sdk.actions.ready({});
+      
+      sdk.on("frameAdded", ({ notificationDetails }) => {
+        setSubmittedAddress("");
+      });
 
-      // Set up a MIPD Store, and request Providers.
       const store = createStore();
-
-      // Subscribe to the MIPD Store.
       store.subscribe((providerDetails) => {
         console.log("PROVIDER DETAILS", providerDetails);
-        // => [EIP6963ProviderDetail, EIP6963ProviderDetail, ...]
       });
     };
+    
     if (sdk && !isSDKLoaded) {
-      console.log("Calling load");
       setIsSDKLoaded(true);
       load();
-      return () => {
-        sdk.removeAllListeners();
-      };
+      return () => sdk.removeAllListeners();
     }
-  }, [isSDKLoaded, addFrame]);
+  }, [isSDKLoaded]);
 
   if (!isSDKLoaded) {
     return <div>Loading...</div>;
   }
 
   return (
-    <div
-      style={{
-        paddingTop: context?.client.safeAreaInsets?.top ?? 0,
-        paddingBottom: context?.client.safeAreaInsets?.bottom ?? 0,
-        paddingLeft: context?.client.safeAreaInsets?.left ?? 0,
-        paddingRight: context?.client.safeAreaInsets?.right ?? 0,
-      }}
-    >
+    <div style={{
+      paddingTop: context?.client.safeAreaInsets?.top ?? 0,
+      paddingBottom: context?.client.safeAreaInsets?.bottom ?? 0,
+      paddingLeft: context?.client.safeAreaInsets?.left ?? 0,
+      paddingRight: context?.client.safeAreaInsets?.right ?? 0,
+    }}>
       <div className="w-[300px] mx-auto py-2 px-2">
         <h1 className="text-2xl font-bold text-center mb-4 text-neutral-900">
           {PROJECT_TITLE}
         </h1>
-        <ExampleCard />
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Enter Token Contract Address</CardTitle>
+            <CardDescription>
+              Paste any ERC-20 contract address below
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Input
+              value={contractAddress}
+              onChange={(e) => setContractAddress(e.target.value)}
+              placeholder="0x..."
+              className="w-full"
+            />
+            {inputError && <p className="text-red-500 text-sm">{inputError}</p>}
+            <div className="flex gap-2">
+              <Button onClick={handleSubmit} className="w-full">
+                Get Token Info
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setContractAddress("");
+                  setSubmittedAddress("");
+                }}
+              >
+                Clear
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {submittedAddress && (
+          <TokenInfoCard contractAddress={submittedAddress} />
+        )}
       </div>
     </div>
   );
